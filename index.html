@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>☠️ CO₂ Balloon Apocalypse Simulator</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <style>
+        body {
+            font-family: sans-serif;
+            max-width: 900px;
+            margin: auto;
+            padding: 20px;
+            background-color: #f8f9fa;
+        }
+        
+        h1 {
+            text-align: center;
+            color: #dc3545;
+            margin-bottom: 30px;
+        }
+        
+        h3 {
+            margin-top: 1.2em;
+            margin-bottom: 0.4em;
+            color: #495057;
+        }
+        
+        .controls {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .control-group {
+            margin-bottom: 20px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #495057;
+        }
+        
+        input[type="range"] {
+            width: 100%;
+            margin-bottom: 10px;
+        }
+        
+        .value-display {
+            text-align: center;
+            font-size: 14px;
+            color: #6c757d;
+            margin-bottom: 10px;
+        }
+        
+        #metrics {
+            font-size: 18px;
+            line-height: 1.8em;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+        }
+        
+        .chart-container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        
+        footer {
+            font-size: 12px;
+            margin-top: 2em;
+            color: #6c757d;
+            line-height: 1.5;
+        }
+        
+        .metric-highlight {
+            font-weight: bold;
+            color: #dc3545;
+        }
+    </style>
+</head>
+<body>
+    <h1>☠️ CO₂ Balloon Apocalypse Simulator</h1>
+    
+    <h3>Editable assumptions</h3>
+    <div class="controls">
+        <div class="control-group">
+            <label for="lpc">Soda volume per capita (L/year)</label>
+            <input type="range" id="lpc" min="5" max="50" step="0.1" value="23.47">
+            <div class="value-display" id="lpc-value">23.47</div>
+        </div>
+        
+        <div class="control-group">
+            <label for="gpl">CO₂ dissolved per litre of soda (g/L)</label>
+            <input type="range" id="gpl" min="2" max="10" step="0.1" value="6">
+            <div class="value-display" id="gpl-value">6.0</div>
+        </div>
+        
+        <div class="control-group">
+            <label for="cars">Toyota Camrys (fleet size, millions)</label>
+            <input type="range" id="cars" min="1" max="20" step="1" value="10">
+            <div class="value-display" id="cars-value">10 M</div>
+        </div>
+        
+        <div class="control-group">
+            <label for="miles">Miles driven per Camry per day</label>
+            <input type="range" id="miles" min="5" max="100" step="1" value="30">
+            <div class="value-display" id="miles-value">30</div>
+        </div>
+        
+        <div class="control-group">
+            <label for="flights">Boeing 737 flights per day</label>
+            <input type="range" id="flights" min="1000" max="10000" step="100" value="6000">
+            <div class="value-display" id="flights-value">6000</div>
+        </div>
+    </div>
+    
+    <h3>Daily snapshot</h3>
+    <div id="metrics"></div>
+    
+    <div class="chart-container">
+        <div id="bar-chart"></div>
+    </div>
+    
+    <div class="chart-container">
+        <div id="polar-chart"></div>
+    </div>
+    
+    <footer>
+        Sources: Statista (per‑capita soda volume) · CySoda (CO₂ per can) · Toyota Environmental Metrics
+        (tailpipe g/km) · CarbonIndependent.org (B737 fuel burn). All figures can be overridden above.
+    </footer>
+
+    <script>
+        // Constants
+        const WORLD_POP = 8.1e9;
+        const GIRAFFE_HT = 5.5;
+        const LA_DENSITY = 6000;
+
+        // Science functions
+        function sodaEmissions(litresPerCapitaYr, gCo2PerL) {
+            const dailyLitres = (WORLD_POP * litresPerCapitaYr) / 365;
+            const dailyG = dailyLitres * gCo2PerL;
+            const dailyT = dailyG / 1e6;
+            const moles = dailyG / 44;
+            const volumeM3 = moles * 0.0224;
+            return { t: dailyT, m3: volumeM3 };
+        }
+
+        function carEmissions(nCars, milesPerDay, gCo2Mile) {
+            return nCars * milesPerDay * gCo2Mile / 1e6;
+        }
+
+        function flightEmissions(nFlights, tCo2PerFlight) {
+            return nFlights * tCo2PerFlight;
+        }
+
+        function sphereDiameter(volumeM3) {
+            const r = Math.pow(3 * volumeM3 / (4 * Math.PI), 1/3);
+            return 2 * r;
+        }
+
+        function lethalRadius(dailyT, nyosMassT = 1.6e6, nyosRadiusKm = 25) {
+            return nyosRadiusKm * Math.pow(dailyT / nyosMassT, 1/3);
+        }
+
+        function victimEstimate(killRKm, density = LA_DENSITY, lethality = 0.35) {
+            const area = Math.PI * killRKm * killRKm;
+            return Math.round(area * density * lethality);
+        }
+
+        // Update functions
+        function updateDisplay() {
+            const lpc = parseFloat(document.getElementById('lpc').value);
+            const gpl = parseFloat(document.getElementById('gpl').value);
+            const cars = parseFloat(document.getElementById('cars').value) * 1e6;
+            const miles = parseFloat(document.getElementById('miles').value);
+            const flights = parseFloat(document.getElementById('flights').value);
+
+            // Update value displays
+            document.getElementById('lpc-value').textContent = lpc.toFixed(1);
+            document.getElementById('gpl-value').textContent = gpl.toFixed(1);
+            document.getElementById('cars-value').textContent = (cars/1e6).toFixed(0) + ' M';
+            document.getElementById('miles-value').textContent = miles.toFixed(0);
+            document.getElementById('flights-value').textContent = flights.toFixed(0);
+
+            // Calculations
+            const soda = sodaEmissions(lpc, gpl);
+            const carT = carEmissions(cars, miles, 318);
+            const flightT = flightEmissions(flights, 11.37);
+
+            const dia = sphereDiameter(soda.m3);
+            const giraffes = dia / GIRAFFE_HT;
+            const killR = lethalRadius(soda.t);
+            const deaths = victimEstimate(killR);
+
+            // Update metrics
+            const metricsHtml = `
+                <p>🌍 Daily soda CO₂: <span class="metric-highlight">${Math.round(soda.t)} t</span> → ${Math.round(soda.m3)} m³</p>
+                <p>🎈 Balloon diameter: <span class="metric-highlight">${Math.round(dia).toLocaleString()} m</span> (${giraffes.toFixed(1)} giraffes)</p>
+                <p>💀 If burst over Hollywood: kill radius <span class="metric-highlight">${killR.toFixed(1)} km</span>, ≈ ${deaths.toLocaleString()} potential deaths</p>
+            `;
+            document.getElementById('metrics').innerHTML = metricsHtml;
+
+            // Update bar chart
+            const barData = [{
+                x: ['Soda', '10 M Camrys', '6 000 B737s'],
+                y: [soda.t, carT, flightT],
+                type: 'bar',
+                text: [`${Math.round(soda.t)} t`, `${Math.round(carT).toLocaleString()} t`, `${Math.round(flightT).toLocaleString()} t`],
+                textposition: 'outside',
+                marker: { color: ['#ff6b6b', '#4ecdc4', '#45b7d1'] }
+            }];
+
+            const barLayout = {
+                title: 'Daily CO₂ Emissions Comparison',
+                yaxis: { title: 'Tonnes CO₂ per day' },
+                showlegend: false,
+                font: { family: 'sans-serif' }
+            };
+
+            Plotly.newPlot('bar-chart', barData, barLayout, {responsive: true});
+
+            // Update polar chart
+            const theta = [];
+            const r = [];
+            for (let i = 0; i <= 360; i += 5) {
+                theta.push(i);
+                r.push(killR);
+            }
+
+            const polarData = [{
+                type: 'scatterpolar',
+                r: r,
+                theta: theta,
+                mode: 'lines',
+                fill: 'toself',
+                name: 'Lethal CO₂ Zone',
+                line: { width: 2, color: '#dc3545' },
+                fillcolor: 'rgba(220, 53, 69, 0.3)'
+            }];
+
+            const polarLayout = {
+                title: 'Projected ground‑level kill radius (center = Hollywood Blvd)',
+                polar: {
+                    radialaxis: {
+                        range: [0, Math.max(killR + 1, 5)],
+                        visible: true,
+                        title: 'Distance (km)'
+                    }
+                },
+                showlegend: false,
+                font: { family: 'sans-serif' }
+            };
+
+            Plotly.newPlot('polar-chart', polarData, polarLayout, {responsive: true});
+        }
+
+        // Event listeners
+        document.addEventListener('DOMContentLoaded', function() {
+            const sliders = ['lpc', 'gpl', 'cars', 'miles', 'flights'];
+            sliders.forEach(id => {
+                document.getElementById(id).addEventListener('input', updateDisplay);
+            });
+            
+            // Initial update
+            updateDisplay();
+        });
+    </script>
+</body>
+</html>
